@@ -34,6 +34,15 @@ export const can = {
   configureSite: (actor: Actor) => atLeast(actor.role, Role.SUPERVISOR),
   /** See every shift and report at a visible site, not just their own. */
   viewAllShiftsAtSite: (actor: Actor) => atLeast(actor.role, Role.SUPERVISOR),
+  /**
+   * See the company across every contract: coverage, delivery health, the
+   * roster. Separate from `manageUsers` even though both are ADMIN today,
+   * because one is a read of the whole business and the other is a write to
+   * the team. Tying the overview to the invite permission would mean any
+   * later decision to let supervisors look silently hands them the invite
+   * form too.
+   */
+  viewCompany: (actor: Actor) => atLeast(actor.role, Role.ADMIN),
   /** Invite users and change site assignments. */
   manageUsers: (actor: Actor) => atLeast(actor.role, Role.ADMIN),
   /** Company settings, billing, deletion. */

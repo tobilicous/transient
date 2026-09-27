@@ -3,21 +3,24 @@ import Link from "next/link";
 
 import { AppChrome } from "@/components/app-chrome";
 import {
+  CompanyDashboardView,
+  SiteDutyTable,
+} from "@/components/dashboard/company-dashboard";
+import {
   GuardDashboardView,
   RecentReports,
 } from "@/components/dashboard/guard-dashboard";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { can, requireUnlockedActor } from "@/lib/auth/guards";
 import { db, type Actor } from "@/lib/db/scoped";
 import { averageEndFlowMs } from "@/lib/db/shift-end";
-import { formatClock } from "@/lib/time";
+import { summariseDeliveries } from "@/lib/reports/delivery-health";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
 /**
- * Section 9.1. Two genuinely different screens behind one route, because the
- * two roles arrive with different questions.
+ * Section 9.1. Three genuinely different screens behind one route, because the
+ * three roles arrive with different questions.
  *
  * A guard opens this on a phone, outside, about to start work. The only
  * question is "which shift, and start it" — so that is one large target and
@@ -26,25 +29,36 @@ export const metadata: Metadata = { title: "Dashboard" };
  * A supervisor opens it to find out what is wrong right now. That is a scan
  * across sites, so it is a table, and anything needing action is lifted above
  * the table rather than left to be spotted inside it.
+ *
+ * An admin or owner is running the firm, not a shift. Their questions are
+ * whether every contract is actually being covered, whether the reports
+ * reached the clients, and who is working — so the table is still there, but
+ * it is no longer the headline.
  */
 export default async function DashboardPage() {
   const actor = await requireUnlockedActor();
   const me = await db(actor).user.findById(actor.userId);
+
+  const heading = can.viewCompany(actor)
+    ? "Company overview"
+    : can.viewAllShiftsAtSite(actor)
+      ? "Site overview"
+      : "Your shifts";
 
   return (
     <>
       <AppChrome />
       <main className="mx-auto w-full max-w-3xl space-y-6 px-4 pt-4 pb-28 sm:px-6">
         <header className="space-y-1">
-          <h1 className="text-3xl font-semibold tracking-tight text-text">
-            {can.viewAllShiftsAtSite(actor) ? "Site overview" : "Your shifts"}
-          </h1>
+          <h1 className="text-3xl font-semibold tracking-tight text-text">{heading}</h1>
           <p className="text-sm text-text-muted capitalize">
             {me?.name ?? "Signed in"} · {actor.role.toLowerCase().replace("_", " ")}
           </p>
         </header>
 
-        {can.viewAllShiftsAtSite(actor) ? (
+        {can.viewCompany(actor) ? (
+          <CompanyView actor={actor} />
+        ) : can.viewAllShiftsAtSite(actor) ? (
           <SupervisorView actor={actor} />
         ) : (
           <GuardView actor={actor} />
@@ -130,60 +144,52 @@ async function SupervisorView({ actor }: { actor: Actor }) {
         <CardHeader>
           <CardTitle>Sites</CardTitle>
         </CardHeader>
-        <CardContent className="px-0 pb-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <caption className="sr-only">
-                Sites you supervise, with the guard currently on duty and the number of
-                unresolved incidents.
-              </caption>
-              <thead className="border-b border-border text-text-muted">
-                <tr>
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    Site
-                  </th>
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    On duty
-                  </th>
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    Started
-                  </th>
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    Open
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {sites.map((site) => {
-                  const onDuty = site.shifts[0];
-                  return (
-                    <tr key={site.id}>
-                      <th scope="row" className="px-4 py-3 font-normal text-text">
-                        {site.name}
-                      </th>
-                      <td className="px-4 py-3 text-text-muted">
-                        {onDuty?.guard.name ?? "Nobody"}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-text-muted tabular-nums">
-                        {onDuty ? formatClock(onDuty.clockInAt, site.timezone) : "—"}
-                      </td>
-                      <td className="px-4 py-3">
-                        {site._count.shifts > 0 ? (
-                          <Badge tone="danger">{site._count.shifts}</Badge>
-                        ) : (
-                          <span className="text-text-muted">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        <CardContent className="px-4 pb-0">
+          <SiteDutyTable sites={sites} />
         </CardContent>
       </Card>
 
       <RecentReports reports={recent} />
     </div>
+  );
+}
+
+/** How far back the delivery panel looks. A week covers a full rota. */
+const DELIVERY_WINDOW_DAYS = 7;
+
+/**
+ * The start of the delivery window. A plain function with a defaulted `now`
+ * rather than a `Date.now()` in the render body, which the purity rule
+ * rightly rejects: a value that changes on every re-render is not a value the
+ * component can be reasoned about. Same shape as `startOfMonth` above.
+ */
+function deliveryWindowStart(now = new Date()): Date {
+  return new Date(now.getTime() - DELIVERY_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * The firm's screen. Everything here is already company-scoped by
+ * `visible.*`, so this reads the same way the supervisor view does — the
+ * difference is which rows come back and what order they are shown in.
+ */
+async function CompanyView({ actor }: { actor: Actor }) {
+  const scoped = db(actor);
+  const since = deliveryWindowStart();
+
+  const [sites, deliveries, incidents, roster] = await Promise.all([
+    scoped.site.findManyWithDuty(),
+    scoped.company.deliveryHealth(since),
+    scoped.company.openIncidents(),
+    scoped.company.roster(),
+  ]);
+
+  return (
+    <CompanyDashboardView
+      sites={sites}
+      delivery={summariseDeliveries(deliveries)}
+      incidents={incidents}
+      roster={roster}
+      windowDays={DELIVERY_WINDOW_DAYS}
+    />
   );
 }
