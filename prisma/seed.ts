@@ -52,7 +52,7 @@ async function main() {
   // worth having a screenshot of.
   const trialEndsAt = new Date(Date.now() + 18 * 24 * 60 * 60 * 1000);
   const subscription = {
-    planId: "operations",
+    planId: "portfolio",
     subscriptionStatus: SubscriptionStatus.TRIALING,
     trialEndsAt,
     currentPeriodEnd: trialEndsAt,

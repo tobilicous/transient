@@ -6,30 +6,17 @@ import {
   EVIDENCE_FLOOR_MONTHS,
   PLANS,
   RECOMMENDED,
-  type Audience,
+  TRIAL_DAYS,
   type Entitlement,
+  cheapestPlanWith,
   hasEntitlement,
   monthlyTotal,
+  planBelow,
   planById,
-  plansFor,
+  startingPrice,
 } from "@/lib/billing/plans";
 
-const EVERY_ENTITLEMENT: Entitlement[] = [
-  "client_portal",
-  "custom_templates",
-  "push_alerts",
-  "white_label",
-  "vendor_roster",
-  "report_schedule",
-  "compliance_dashboard",
-  "missing_report_alerts",
-  "cross_vendor_search",
-  "procurement_export",
-  "sso",
-  "api_access",
-  "audit_export",
-  "delivery_attestation",
-];
+const EVERY_ENTITLEMENT: Entitlement[] = ["push_alerts", "audit_export"];
 
 /**
  * These are not "does the object have the right keys" tests. Each pins a
@@ -52,44 +39,24 @@ describe("plans", () => {
     expect(promised).toContain("email delivery");
   });
 
-  it("never charges to invite a vendor, on either side", () => {
-    // Strategic and ethical at once: a client who adds their fourth guard
-    // company is doing the thing we want, and every invited vendor is an
-    // operator now using Transient nightly. Charging for it would be putting
-    // a turnstile on our own funnel.
+  it("never charges to invite a vendor", () => {
+    // Strategic and ethical at once: the client a guard company invites is
+    // the person the whole record exists to convince, and every invited
+    // vendor is an operator now using Transient nightly. Charging for it
+    // would be putting a turnstile on our own funnel.
     expect(ALWAYS_INCLUDED.join(" ").toLowerCase()).toContain("inviting a vendor");
     for (const e of EVERY_ENTITLEMENT) {
       expect(e).not.toMatch(/invite/);
     }
   });
 
-  it("keeps both audiences populated and non-overlapping", () => {
-    const operator = plansFor("operator");
-    const client = plansFor("client");
-    expect(operator.length).toBeGreaterThan(0);
-    expect(client.length).toBeGreaterThan(0);
-    expect(operator.length + client.length).toBe(PLANS.length);
-
-    // Units must match the audience. An operator billed per property, or a
-    // client billed per site, would mean the meter and the story disagree.
-    for (const p of operator) expect(p.unit).toBe("active site");
-    for (const p of client) expect(p.unit).toBe("covered property");
-  });
-
-  it("gives each audience only entitlements that make sense for it", () => {
-    // The client line must not be a cheap backdoor into the operator product.
-    // White-labeling the guard company's own brand is meaningless to a hotel
-    // buying oversight, and shipping it there would be exactly that backdoor.
-    for (const p of plansFor("client")) {
-      expect(p.entitlements).not.toContain("white_label");
-      expect(p.entitlements).not.toContain("custom_templates");
-    }
-    // And the operator line does not get cross-vendor oversight tools, which
-    // only mean anything to somebody supervising vendors they do not employ.
-    for (const p of plansFor("operator")) {
-      expect(p.entitlements).not.toContain("compliance_dashboard");
-      expect(p.entitlements).not.toContain("cross_vendor_search");
-    }
+  it("sells one line, on one meter", () => {
+    // There used to be a second line priced per covered property, sold to the
+    // organisations that hire guard companies. It is gone, and this is the
+    // test that fails if half of it grows back: two meters on one page is the
+    // state where a buyer cannot tell which number applies to them.
+    expect(PLANS.length).toBeGreaterThan(0);
+    for (const plan of PLANS) expect(plan.unit).toBe("active site");
   });
 
   it("holds every plan at or above the evidence retention floor", () => {
@@ -98,80 +65,126 @@ describe("plans", () => {
     }
   });
 
-  it.each<Audience>(["operator", "client"])(
-    "orders %s plans so each is a superset of the last",
-    (audience) => {
-      // Catches the packaging mistake where a mid tier quietly loses something
-      // the cheaper tier had. Customers notice immediately and trust does not
-      // come back.
-      const tiers = plansFor(audience);
-      for (let i = 1; i < tiers.length; i += 1) {
-        const lower = new Set(tiers[i - 1]!.entitlements);
-        const higher = new Set(tiers[i]!.entitlements);
-        for (const e of lower) expect(higher.has(e)).toBe(true);
-        expect(tiers[i]!.retentionMonths).toBeGreaterThanOrEqual(
-          tiers[i - 1]!.retentionMonths,
-        );
-      }
-    },
-  );
-
-  it("quotes no number for the top tier of either line", () => {
-    expect(planById("enterprise").pricePerUnitMonth).toBeNull();
-    expect(planById("institution").pricePerUnitMonth).toBeNull();
-    expect(monthlyTotal(planById("enterprise"), 40)).toBeNull();
-    expect(monthlyTotal(planById("institution"), 40)).toBeNull();
+  it("orders the line so each plan is a superset of the last", () => {
+    // Catches the packaging mistake where a mid tier quietly loses something
+    // the cheaper tier had. Customers notice immediately and trust does not
+    // come back.
+    for (let i = 1; i < PLANS.length; i += 1) {
+      const lower = new Set(PLANS[i - 1]!.entitlements);
+      const higher = new Set(PLANS[i]!.entitlements);
+      for (const e of lower) expect(higher.has(e)).toBe(true);
+      expect(PLANS[i]!.retentionMonths).toBeGreaterThanOrEqual(
+        PLANS[i - 1]!.retentionMonths,
+      );
+      expect(PLANS[i]!.pricePerUnitMonth).toBeGreaterThan(
+        PLANS[i - 1]!.pricePerUnitMonth,
+      );
+    }
   });
 
-  it("charges the plan minimum when a buyer has fewer units than that", () => {
-    const essential = planById("essential"); // $39, min 3 sites
-    expect(monthlyTotal(essential, 1)).toBe(117);
-    expect(monthlyTotal(essential, 3)).toBe(117);
-    expect(monthlyTotal(essential, 10)).toBe(390);
-
-    // The client line's entry tier has no minimum beyond one property, because
-    // a single hotel is a real buyer and a 3-property floor would exclude them.
-    const oversight = planById("oversight"); // $149, min 1 property
-    expect(monthlyTotal(oversight, 1)).toBe(149);
+  it("points each tier at the real plan below it", () => {
+    // The card renders "Everything in X" from this rather than from a string
+    // somebody typed, so reordering the line cannot leave a card promising
+    // everything in a plan that is now above it.
+    expect(planBelow(planById("pilot"))).toBeNull();
+    expect(planBelow(planById("report"))?.id).toBe("pilot");
+    expect(planBelow(planById("response"))?.id).toBe("report");
+    expect(planBelow(planById("portfolio"))?.id).toBe("response");
   });
 
-  it("makes Portfolio cheaper per property than Oversight", () => {
-    // Volume has to actually pay off, or the tier is a price rise dressed as
-    // an upgrade.
-    const oversight = planById("oversight");
-    const portfolio = planById("portfolio");
-    expect(portfolio.pricePerUnitMonth!).toBeLessThan(oversight.pricePerUnitMonth!);
-    expect(portfolio.minUnits).toBeGreaterThan(oversight.minUnits);
-  });
-
-  it("resolves entitlements per plan, not globally", () => {
-    expect(hasEntitlement("essential", "client_portal")).toBe(false);
-    expect(hasEntitlement("operations", "client_portal")).toBe(true);
-    expect(hasEntitlement("operations", "sso")).toBe(false);
-    expect(hasEntitlement("assurance", "sso")).toBe(true);
-    expect(hasEntitlement("assurance", "white_label")).toBe(false);
-    expect(hasEntitlement("enterprise", "white_label")).toBe(true);
-
-    expect(hasEntitlement("oversight", "compliance_dashboard")).toBe(false);
-    expect(hasEntitlement("portfolio", "compliance_dashboard")).toBe(true);
-    expect(hasEntitlement("portfolio", "sso")).toBe(false);
-    expect(hasEntitlement("institution", "sso")).toBe(true);
-  });
-
-  it("has no free tier, on either side", () => {
-    // Deliberate, and a rule rather than an observation about today's numbers.
-    // A $0 plan here would mean holding somebody's legal record for nothing,
-    // which ends exactly one way: we eventually need the money back, and the
-    // only leverage is the evidence. Charging from the first site keeps the
-    // retention promise in `ALWAYS_INCLUDED` something we can actually afford
-    // to keep. The trial is time-boxed instead, which expires without ever
-    // putting a record behind a card.
+  it("quotes a real number for every tier", () => {
+    // No "contact us" tier. A guard company with eleven sites should not have
+    // to sit through a discovery call to find out what eleven sites cost.
     for (const plan of PLANS) {
-      expect(plan.pricePerUnitMonth, `${plan.id} is free`).not.toBe(0);
-      if (plan.pricePerUnitMonth !== null) {
-        expect(plan.pricePerUnitMonth, `${plan.id} price`).toBeGreaterThan(0);
+      expect(typeof plan.pricePerUnitMonth, `${plan.id}`).toBe("number");
+      expect(monthlyTotal(plan, 4)).toBe(plan.pricePerUnitMonth * 4);
+    }
+    expect(monthlyTotal(planById("report"), 10)).toBe(590);
+    expect(monthlyTotal(planById("portfolio"), 3)).toBe(447);
+  });
+
+  it("bills at least the plan minimum", () => {
+    // A month where every site sat dark still bills the account floor. Worth
+    // pinning because the meter copy leans hard on dark sites being free, and
+    // the floor is the one place that is not literally true.
+    for (const plan of PLANS) {
+      expect(monthlyTotal(plan, 0)).toBe(plan.pricePerUnitMonth * plan.minUnits);
+    }
+  });
+
+  it("has exactly one free plan, and it is the time-boxed trial", () => {
+    // The rule is not "no free tier", it is that nothing holds a legal record
+    // for free indefinitely. A $0 plan that renewed forever would end exactly
+    // one way: we eventually need the money back and the only leverage is the
+    // evidence. A trial expires instead, which never puts a record behind a
+    // card. So: at most one zero-priced plan, and it must carry an expiry.
+    const free = PLANS.filter((plan) => plan.pricePerUnitMonth === 0);
+    expect(free.length).toBe(1);
+    expect(free[0]!.trialDays).toBe(TRIAL_DAYS);
+
+    for (const plan of PLANS) {
+      if (plan.pricePerUnitMonth > 0) {
+        expect(plan.trialDays, `${plan.id} is paid but time-boxed`).toBeNull();
       }
     }
+  });
+
+  it("never quotes the free plan as a starting price", () => {
+    // "From $0" would be true of the sentence and false of the offer. The
+    // landing page and the contact section both render this number.
+    const from = startingPrice();
+    expect(from.price).toBeGreaterThan(0);
+    expect(from.price).toBe(59);
+    expect(from.unit).toBe("active site");
+  });
+
+  it("keeps what is built apart from what is only planned", () => {
+    // The whole point of the two fields. A line may not sit in both, because
+    // the card renders `includes` as a tick and `planned` as "not built yet",
+    // and one string appearing in both would render as both at once.
+    for (const plan of PLANS) {
+      const built = new Set(plan.includes);
+      for (const line of plan.planned) {
+        expect(built.has(line), `${plan.id}: "${line}" is in both lists`).toBe(false);
+      }
+      for (const line of [...plan.includes, ...plan.planned]) {
+        expect(line.trim().length, `${plan.id} has an empty line`).toBeGreaterThan(3);
+      }
+    }
+  });
+
+  it("grants an entitlement only where the code implements one", () => {
+    // An `Entitlement` is a gate something in the app reads. Adding one for a
+    // feature that does not exist yet would make the type system agree with
+    // the marketing page and both be wrong, so unbuilt work goes in `planned`,
+    // which gates nothing. This asserts the other direction: every entitlement
+    // in the union is granted by some plan, so a gate can never be unreachable
+    // for every customer at once, which is what a silent feature outage looks
+    // like from the inside.
+    for (const want of EVERY_ENTITLEMENT) {
+      const granting = PLANS.filter((plan) => plan.entitlements.includes(want));
+      expect(granting.length, `nothing grants ${want}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("keeps the two shipped gates on the tiers that sell them", () => {
+    // Push alerts and audit export are real code paths today, not roadmap.
+    // Deleting a grant here silently turns the feature off for every customer
+    // on that plan, which is exactly what renaming the old plans nearly did.
+    expect(hasEntitlement("pilot", "push_alerts")).toBe(false);
+    expect(hasEntitlement("report", "push_alerts")).toBe(false);
+    expect(hasEntitlement("response", "push_alerts")).toBe(true);
+    expect(hasEntitlement("portfolio", "push_alerts")).toBe(true);
+
+    expect(hasEntitlement("response", "audit_export")).toBe(false);
+    expect(hasEntitlement("portfolio", "audit_export")).toBe(true);
+  });
+
+  it("names the plan a buyer needs without hardcoding it", () => {
+    // The 402 from the audit export route used to name a plan by hand, and
+    // outlived it by a rename, telling people to buy something gone.
+    expect(cheapestPlanWith("audit_export")?.id).toBe("portfolio");
+    expect(cheapestPlanWith("push_alerts")?.id).toBe("response");
   });
 
   it("names every entitlement it can render in a comparison table", () => {
@@ -186,24 +199,19 @@ describe("plans", () => {
     }
   });
 
-  it("recommends a real, buyable plan on each side", () => {
+  it("recommends a plan that is buyable and actually delivered", () => {
     // The badge is the only plan we actively point people at. Pointing it at
-    // a quote-only tier would send every small operator into a sales process
-    // they do not need, and pointing it at the wrong audience's plan would be
-    // invisible on the page while being obviously wrong to the buyer.
-    for (const audience of ["operator", "client"] as const) {
-      const plan = planById(RECOMMENDED[audience]);
-      expect(plan.audience, `${audience} recommendation`).toBe(audience);
-      expect(
-        plan.pricePerUnitMonth,
-        `${audience} recommendation is quote-only`,
-      ).not.toBe(null);
-    }
+    // a tier sold mostly on unbuilt work would be pointing a first-time buyer
+    // at the part we cannot yet deliver.
+    const plan = planById(RECOMMENDED);
+    expect(plan.pricePerUnitMonth).toBeGreaterThan(0);
+    expect(plan.planned.length, "recommended plan sells unbuilt work").toBe(0);
+    expect(plan.includes.length).toBeGreaterThan(0);
   });
 
   it("throws on an unknown plan instead of silently granting nothing", () => {
     // Failing closed but loudly. A typo'd plan id that quietly returned false
     // would look exactly like a downgrade to the user.
-    expect(() => planById("pro" as never)).toThrow(/unknown plan/);
+    expect(() => planById("pro" as never)).toThrow(/unknown plan/i);
   });
 });

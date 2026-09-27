@@ -8,6 +8,7 @@ import {
   parseAuditDay,
 } from "@/lib/db/audit";
 import { companyHasEntitlement } from "@/lib/db/billing";
+import { cheapestPlanWith } from "@/lib/billing/plans";
 import { csvFilename, csvResponseHeaders } from "@/lib/export/csv";
 
 /**
@@ -34,7 +35,9 @@ export async function GET(request: Request) {
   if (!(await companyHasEntitlement(actor.companyId, "audit_export"))) {
     return NextResponse.json(
       {
-        error: "Bulk audit export is part of the Assurance plan and up.",
+        error: `Bulk audit export is part of the ${
+          cheapestPlanWith("audit_export")?.name ?? "paid"
+        } plan and up.`,
         code: "PLAN_REQUIRED",
         entitlement: "audit_export",
       },

@@ -386,7 +386,7 @@ describe("high-severity incident alerts", () => {
     // Same incident shape, same company, one thing changed. If this passed
     // without the plan change, the test above would be proving nothing.
     await setCompanyPlan(a.company.id, {
-      planId: "operations",
+      planId: "response",
       status: SubscriptionStatus.ACTIVE,
     });
 
@@ -431,11 +431,11 @@ describe("high-severity incident alerts", () => {
 
   it("does not alert a supervisor at another company", async () => {
     await setCompanyPlan(a.company.id, {
-      planId: "operations",
+      planId: "response",
       status: SubscriptionStatus.ACTIVE,
     });
     await setCompanyPlan(b.company.id, {
-      planId: "operations",
+      planId: "response",
       status: SubscriptionStatus.ACTIVE,
     });
 

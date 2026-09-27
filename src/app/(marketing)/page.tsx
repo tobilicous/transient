@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 
 import { DashboardMock } from "@/components/marketing/dashboard-mock";
-import { PLAN_LINES, PlanLine } from "@/components/marketing/pricing-plans";
+import { PlanLine } from "@/components/marketing/pricing-plans";
 import { ShiftLoop } from "@/components/marketing/shift-loop";
 import { SiteConfigMock } from "@/components/marketing/site-config-mock";
 import { TimelineMock } from "@/components/marketing/timeline-mock";
@@ -63,26 +63,27 @@ const PROBLEMS = [
 
 // Prices are read from the billing module, never retyped here. A marketing page
 // quoting a number the app has stopped charging is the classic way this drifts.
-const OPERATOR_FROM = startingPrice("operator");
-const CLIENT_FROM = startingPrice("client");
+const STARTING_FROM = startingPrice();
 
-// --- 2b. The two buyers -------------------------------------------------------
-// Deliberately says out loud that a building can appear on both sides. Hiding
-// that would make the first awkward sales call worse, not better.
+// --- 2b. Who pays, and who it is for ------------------------------------------
+// One buyer. The contractor pays, the client is who the record has to convince.
+// Saying that out loud is the positioning: every competitor sells the building
+// owner a way to watch their vendors, which makes the vendor the problem. Here
+// the vendor is the customer and the record is the thing they sell with.
 const AUDIENCES = [
   {
-    title: "Guard companies",
-    who: "You employ the officers and you are the one being judged at renewal.",
+    title: "You, the guard company",
+    who: "You cover other people's buildings and you are the one being judged at renewal.",
     body: "Your people already do the work. What is missing is the part where a client can see it without you emailing them a reassurance. Priced per active site, so covering a shift never costs you more than not covering it.",
-    cta: "See guard company pricing",
-    href: "#for-guard-companies",
+    cta: "See pricing",
+    href: "#pricing",
   },
   {
-    title: "The organisations that hire them",
-    who: "School districts, hospitals, hotels, campuses, property managers.",
-    body: "You are paying three vendors and getting three formats, on three schedules, when they remember. Set the standard once, have every vendor report into it, and keep the record when the contract ends. Inviting a vendor is always free.",
-    cta: "See oversight pricing",
-    href: "#for-the-people-who-hire-them",
+    title: "The hotel you cover",
+    who: "They never pay us, and they never need an account.",
+    body: "They get the same PDF every morning, at the same time, with a content hash on it, from whichever officer worked the night. That consistency is yours to point at when the contract comes up, which is the reason you are buying this and not them.",
+    cta: "See a sample report",
+    href: "/sample-report",
   },
 ] as const;
 
@@ -253,7 +254,7 @@ export default function HomePage() {
         <Section
           id="audiences"
           title="Two people care about that record"
-          lead="They are not the same customer and we stopped pretending they were. One is being judged on the work. The other is trying to find out whether the work happened."
+          lead="Only one of them pays. You are being judged on the work, and your client is trying to find out whether it happened. We sell to you, because you are the one who has to prove it."
         >
           <ul className="grid gap-4 md:grid-cols-2">
             {AUDIENCES.map((audience) => (
@@ -343,12 +344,10 @@ export default function HomePage() {
         <Section
           id="pricing"
           title="Priced per site, not per guard"
-          lead="Two products, because the company guarding a building and the organisation that hired them are buying different things. No free tier: this is a legal record, and a plan that quietly stops holding one is worse than no plan. Thirty days free instead, no card."
+          lead="One line, four steps, sold to the company doing the guarding. Start on thirty days free with no card. The two top tiers are partly sold on work that is not built yet, and the cards say exactly which parts those are."
         >
           <div className="flex flex-col gap-16">
-            {PLAN_LINES.map((line) => (
-              <PlanLine key={line.id} line={line} headingLevel="h3" />
-            ))}
+            <PlanLine headingLevel="h3" />
           </div>
           <div className="flex flex-col gap-4 border-t border-border pt-8">
             <h3 className="text-lg font-medium">What no plan will ever withhold</h3>
@@ -371,8 +370,8 @@ export default function HomePage() {
             </ul>
             <p className="pt-2 text-sm">
               <Link href="/pricing" className="underline underline-offset-4">
-                The longer version: why both sides pay, and what happens to your data if
-                you leave
+                The longer version: what we will never put behind a plan, and what
+                happens to your data if you leave
               </Link>
             </p>
           </div>
@@ -382,7 +381,7 @@ export default function HomePage() {
         <Section
           id="contact"
           title="Tell us what you cover"
-          lead="Whichever side you are on, the fastest answer comes from telling us the shape of the work: how many sites, how many vendors, what your clients ask for at renewal. No deck, no discovery call before a straight answer on price."
+          lead="The fastest answer comes from telling us the shape of the work: how many sites you cover, how many sit dark in a given month, and what your clients ask for at renewal. No deck, no discovery call before a straight answer on price."
         >
           <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
             <ul className="flex flex-col gap-3 text-sm text-text-muted">
@@ -391,7 +390,7 @@ export default function HomePage() {
                   className="mt-0.5 size-4 shrink-0 text-accent"
                   aria-hidden="true"
                 />
-                {`From $${OPERATOR_FROM.price} a ${OPERATOR_FROM.unit} for guard companies, $${CLIENT_FROM.price} a ${CLIENT_FROM.unit} for the people who hire them. Unlimited guards either way.`}
+                {`From $${STARTING_FROM.price} an ${STARTING_FROM.unit} a month, unlimited guards on it. Thirty days free before that, no card.`}
               </li>
               <li className="flex gap-2">
                 <Mail

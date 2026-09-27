@@ -3,28 +3,28 @@ import Link from "next/link";
 import { Minus } from "lucide-react";
 
 import { Logo } from "@/components/brand";
-import { PLAN_LINES, PlanLine } from "@/components/marketing/pricing-plans";
+import { PlanLine } from "@/components/marketing/pricing-plans";
 import { SiteFooter } from "@/components/marketing/site-footer";
 import { Button } from "@/components/ui/button";
-import { ALWAYS_INCLUDED } from "@/lib/billing/plans";
+import { ALWAYS_INCLUDED, TRIAL_DAYS } from "@/lib/billing/plans";
 
 export const metadata: Metadata = {
   title: "Pricing — Transient",
   description:
-    "Two products. Guard companies pay per active site. The organisations that hire them pay per covered property, and never pay to add a vendor.",
+    "One line, four steps, sold to guard companies. Priced per active site with unlimited guards on it. Thirty days free, no card.",
   alternates: { canonical: "/pricing" },
 };
 
 export const dynamic = "force-static";
 
 /**
- * Both product lines on one static page, stacked rather than behind a toggle.
+ * The plan line and the rules around it, on one static page.
  *
- * A toggle would need client JavaScript and would hide half the page from
- * search and from anyone who lands here from a vendor invitation, which is a
- * real entry path: an operator invited into a client's workspace arrives
- * wanting to know what *their* side costs. Every number comes from `PLANS`, so
- * this page cannot drift from what the app actually enforces.
+ * No toggle and no tabs. Both would need client JavaScript and would hide
+ * part of the page from search and from anyone who lands here from a link in
+ * a proposal, which is a real entry path: a buyer forwards this to whoever
+ * signs. Every number comes from `PLANS`, so this page cannot drift from what
+ * the app actually enforces.
  */
 
 export default function PricingPage() {
@@ -42,49 +42,38 @@ export default function PricingPage() {
       <main className="mx-auto w-full max-w-6xl px-6 pb-24">
         <section className="flex flex-col gap-4 pt-6 pb-10">
           <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
-            Two sides of the same night
+            Priced per site, not per guard
           </h1>
           <p className="max-w-2xl text-lg text-pretty text-text-muted">
-            The company that guards a building and the organisation that hired them need
-            different things from the same shift. So there are two products here, not
-            one product with a discount.
+            One line, four steps, sold to the company doing the guarding. Start free
+            for {TRIAL_DAYS} days with no card. Two of the tiers are partly sold on
+            work we have not built yet, and every one of those lines says so on the
+            card rather than in a footnote.
           </p>
-          <nav aria-label="Jump to a plan line" className="flex flex-wrap gap-3">
-            {PLAN_LINES.map((line) => (
-              <Button key={line.id} asChild variant="secondary">
-                <Link href={`#${line.id}`}>{line.heading}</Link>
-              </Button>
-            ))}
-          </nav>
         </section>
 
-        {PLAN_LINES.map((line) => (
-          <div
-            key={line.id}
-            className="border-t border-border pt-12 pb-16 first:border-t-0"
-          >
-            <PlanLine line={line} />
-          </div>
-        ))}
+        <div className="border-t border-border pt-12 pb-16 first:border-t-0">
+          <PlanLine />
+        </div>
 
         <section
           aria-labelledby="overlap-heading"
           className="flex flex-col gap-3 border-t border-border pt-12"
         >
           <h2 id="overlap-heading" className="text-2xl font-semibold tracking-tight">
-            If both of us pay, are you billing twice for one building?
+            Why sell to the guard company and not the building?
           </h2>
           <p className="max-w-3xl text-pretty text-text-muted">
-            Yes, and here is the honest reasoning rather than a dodge. The guard company
-            is paying to run the work. You are paying for oversight across vendors you
-            do not employ, which is a different job and mostly a different set of
-            screens. Your vendor&rsquo;s workspace stays theirs, your record stays
-            yours, and neither of us can quietly edit the other&rsquo;s copy.
+            Because you are the one who has to prove it. Every other tool in this
+            category is sold to the property owner as a way of watching their vendors,
+            which makes the vendor the problem to be solved and gives them every
+            reason to do the minimum. Here the vendor is the customer, and the record
+            is the thing you sell with at renewal.
           </p>
           <p className="max-w-3xl text-pretty text-text-muted">
-            If you employ your own officers, you are not a client in this sense. You are
-            running the work, so the guard-company line is the one you want, and you
-            should ignore the second half of this page.
+            Your client never pays us and never needs an account. They get the PDF,
+            every morning, with a content hash on it. If they want to come looking
+            through history themselves you can invite them, on any plan, at no cost.
           </p>
         </section>
 
@@ -94,7 +83,7 @@ export default function PricingPage() {
         >
           <div className="flex flex-col gap-3">
             <h2 id="never-heading" className="text-2xl font-semibold tracking-tight">
-              What we will never put behind a plan
+              Never gated, on any plan, including a lapsed one
             </h2>
             <p className="max-w-3xl text-pretty text-text-muted">
               If a card expires on the night a building floods, the flood still gets
@@ -129,21 +118,21 @@ export default function PricingPage() {
           <div className="flex flex-col gap-5">
             <div className="flex flex-col gap-1">
               <h3 className="font-medium">
-                Do our vendors have to pay before they can report to us?
+                Does our client have to pay before we can report to them?
               </h3>
               <p className="max-w-3xl text-sm text-pretty text-text-muted">
-                No. A vendor you invite can log shifts and file reports into your
-                workspace without buying anything. They pay us when they want Transient
-                across their own book of business, which is their call and not a toll
-                gate on yours.
+                No. Reports go to them as email with a PDF attached, and that costs
+                them nothing on any plan. If they want a login to go looking through
+                history themselves, you can invite them, also at no cost. We bill you
+                per active site and nobody else.
               </p>
             </div>
             <div className="flex flex-col gap-1">
               <h3 className="font-medium">Do report recipients need an account?</h3>
               <p className="max-w-3xl text-sm text-pretty text-text-muted">
-                Never, on any plan, on either side. A report arrives as email with a
-                PDF. The portal is for people who want to go looking through history
-                themselves rather than dig through an inbox.
+                Never, on any plan. A report arrives as email with a PDF. The portal is
+                for people who want to go looking through history themselves rather than
+                dig through an inbox.
               </p>
             </div>
             <div className="flex flex-col gap-1">

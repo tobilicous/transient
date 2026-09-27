@@ -40,13 +40,19 @@ import { createTenant, raw, resetDatabase } from "./helpers";
  */
 let paid: Awaited<ReturnType<typeof createTenant>>;
 let free: Awaited<ReturnType<typeof createTenant>>;
+let report: Awaited<ReturnType<typeof createTenant>>;
 
 beforeAll(async () => {
   await resetDatabase();
   paid = await createTenant("billing-paid");
   free = await createTenant("billing-free");
+  report = await createTenant("billing-report");
   await setCompanyPlan(paid.company.id, {
-    planId: "assurance",
+    planId: "portfolio",
+    status: SubscriptionStatus.ACTIVE,
+  });
+  await setCompanyPlan(report.company.id, {
+    planId: "report",
     status: SubscriptionStatus.ACTIVE,
   });
 });
@@ -148,16 +154,7 @@ describe("what a plan may never switch off", () => {
   it("denies every gated entitlement to that same company", async () => {
     // The control for the test above. If this failed open, the previous test
     // would pass without proving anything at all.
-    const gated: Entitlement[] = [
-      "client_portal",
-      "custom_templates",
-      "push_alerts",
-      "sso",
-      "api_access",
-      "audit_export",
-      "delivery_attestation",
-      "white_label",
-    ];
+    const gated: Entitlement[] = ["push_alerts", "audit_export"];
 
     for (const entitlement of gated) {
       expect(
@@ -190,9 +187,10 @@ describe("resolving a plan", () => {
   it("grants exactly the entitlements its plan lists", async () => {
     expect(await companyHasEntitlement(paid.company.id, "audit_export")).toBe(true);
     expect(await companyHasEntitlement(paid.company.id, "push_alerts")).toBe(true);
-    // Assurance stops short of white-label. A plan granting more than it
-    // sells is the failure nobody reports.
-    expect(await companyHasEntitlement(paid.company.id, "white_label")).toBe(false);
+    // And a plan below it does not. A plan granting more than it sells is the
+    // failure nobody reports.
+    expect(await companyHasEntitlement(report.company.id, "audit_export")).toBe(false);
+    expect(await companyHasEntitlement(report.company.id, "push_alerts")).toBe(false);
   });
 
   it("degrades to no plan when the stored id is not a plan any more", async () => {
@@ -306,12 +304,22 @@ describe("the active-site meter", () => {
   });
 
   it("bills the plan minimum when fewer sites are active", async () => {
+    // Portfolio has a one-site floor, and this tenant has exactly one active
+    // site, so the meter and the floor agree here.
     const summary = await billingSummary(paid.company.id);
     expect(summary.activeSites).toBe(1);
-    // Assurance has a five-site minimum, and the total must follow the
-    // billable units rather than the raw meter.
-    expect(summary.billableUnits).toBe(5);
-    expect(summary.monthlyTotalUsd).toBe(5 * 149);
+    expect(summary.billableUnits).toBe(1);
+    expect(summary.monthlyTotalUsd).toBe(149);
+
+    // The case that actually discriminates: a company whose sites all sat
+    // dark for the month still pays the floor. Billing straight off the meter
+    // would return zero here and hand out a free month to anyone who stopped
+    // clocking in, which is also the month they are most likely to be in a
+    // dispute about.
+    const dark = await billingSummary(report.company.id);
+    expect(dark.activeSites).toBe(0);
+    expect(dark.billableUnits).toBe(1);
+    expect(dark.monthlyTotalUsd).toBe(59);
   });
 
   it("charges nothing for a company with no plan", async () => {

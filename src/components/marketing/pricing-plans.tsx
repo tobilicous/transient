@@ -1,16 +1,16 @@
 import Link from "next/link";
-import { Check, Minus } from "lucide-react";
+import { Check, Clock, Minus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  type Audience,
   ENTITLEMENT_LABELS,
   type Entitlement,
   type Plan,
+  PLANS,
+  planBelow,
   RECOMMENDED,
   TRIAL_DAYS,
-  plansFor,
 } from "@/lib/billing/plans";
 
 /**
@@ -27,39 +27,33 @@ import {
  * Server-rendered, no client JavaScript. A monthly/annual toggle is the
  * obvious next thing to add and is deliberately absent: we bill one way, and
  * a toggle with one setting is a control that lies about having a choice.
+ * There used to be a second set of cards for the organizations that hire
+ * guard companies. Same reasoning: one buyer, so one line.
  */
 
-export const PLAN_LINES: {
-  audience: Audience;
-  id: string;
-  heading: string;
-  who: string;
-  lead: string;
-  meter: string;
-}[] = [
-  {
-    audience: "operator",
-    id: "for-guard-companies",
-    heading: "For guard companies",
-    who: "You employ the officers and you are being judged at renewal.",
-    lead: "Charging per guard would mean charging you more every time you cover a shift, which is a good way to end up with one login shared across a crew. A shared login wrecks attribution, and attribution is what your client is actually buying. So we bill the site.",
-    meter:
-      "A site counts for a month if at least one shift was clocked in on it. Seasonal work and event sites cost nothing in the months they sit dark.",
-  },
-  {
-    audience: "client",
-    id: "for-the-people-who-hire-them",
-    heading: "For the organisations that hire them",
-    who: "School districts, hospitals, hotels, campuses, property managers.",
-    lead: "You are not running the guards. You are trying to find out whether three different vendors are actually doing what their contracts say, without chasing PDFs through an inbox. You set the standard, every vendor reports into it, and the delivery record is yours rather than theirs.",
-    meter:
-      "Priced per property you cover. Never per vendor — adding your fourth guard company is the behaviour we want, so it is free, permanently.",
-  },
-];
+export const PLAN_LINE = {
+  id: "for-guard-companies",
+  heading: "For guard companies",
+  who: "You cover other people's buildings, and you are being judged at renewal.",
+  lead: "Charging per guard would mean charging you more every time you cover a shift, which is a good way to end up with one login shared across a crew. A shared login wrecks attribution, and attribution is what your client is actually buying. So we bill the site.",
+  meter:
+    "A site counts for a month if at least one shift was clocked in on it. Seasonal work and event sites cost nothing in the months they sit dark, down to a one-site minimum on the account.",
+};
 
+/**
+ * One plan, as a card.
+ *
+ * `includes` and `planned` are rendered by two different blocks on purpose.
+ * They carry different icons, different headings and different words, so a
+ * buyer skimming the card cannot read something we have not built as
+ * something they are about to get. The word "Planned" is in the text rather
+ * than only in the icon, because an icon is not readable to a screen reader
+ * user or to anyone who does not already know what a clock means here.
+ */
 export function PlanCard({ plan }: { plan: Plan }) {
-  const quoteOnly = plan.pricePerUnitMonth === null;
-  const recommended = RECOMMENDED[plan.audience] === plan.id;
+  const free = plan.pricePerUnitMonth === 0;
+  const recommended = RECOMMENDED === plan.id;
+  const below = planBelow(plan);
   return (
     <Card
       data-plan={plan.id}
@@ -77,8 +71,13 @@ export function PlanCard({ plan }: { plan: Plan }) {
           ) : null}
         </div>
         <p className="flex items-baseline gap-1">
-          {quoteOnly ? (
-            <span className="text-2xl font-semibold">Let&rsquo;s talk</span>
+          {free ? (
+            <>
+              <span className="text-3xl font-semibold">Free</span>
+              <span className="text-sm text-text-muted">
+                for {plan.trialDays ?? TRIAL_DAYS} days
+              </span>
+            </>
           ) : (
             <>
               <span className="text-3xl font-semibold tabular-nums">
@@ -89,9 +88,11 @@ export function PlanCard({ plan }: { plan: Plan }) {
           )}
         </p>
         <p className="text-sm text-text-muted">
-          {plan.minUnits === 1
-            ? `From one ${plan.unit}`
-            : `${plan.minUnits} ${plan.unit} minimum`}
+          {free
+            ? "No card to start"
+            : plan.minUnits === 1
+              ? `From one ${plan.unit}`
+              : `${plan.minUnits} ${plan.unit} minimum`}
         </p>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-4">
@@ -102,14 +103,21 @@ export function PlanCard({ plan }: { plan: Plan }) {
             variant={recommended ? "primary" : "secondary"}
             className="w-full"
           >
-            <Link
-              href={quoteOnly ? "/#contact" : `/sign-up?plan=${plan.id}`}
-            >
-              {quoteOnly ? "Talk to us" : `Start ${TRIAL_DAYS} days free`}
-            </Link>
+            <Link href={`/sign-up?plan=${plan.id}`}>Start {TRIAL_DAYS} days free</Link>
           </Button>
         </div>
         <ul className="flex flex-col gap-2">
+          {below ? (
+            <li className="flex gap-2 text-sm">
+              <Check
+                className="mt-0.5 size-4 shrink-0 text-accent"
+                aria-hidden="true"
+              />
+              <span className="text-text-muted">
+                Everything in {below.name}
+              </span>
+            </li>
+          ) : null}
           {plan.includes.map((line) => (
             <li key={line} className="flex gap-2 text-sm">
               <Check
@@ -120,18 +128,42 @@ export function PlanCard({ plan }: { plan: Plan }) {
             </li>
           ))}
         </ul>
+        {plan.planned.length > 0 ? (
+          <div className="flex flex-col gap-2 border-t border-border pt-4">
+            <p className="text-sm font-medium">
+              Planned, not built yet
+            </p>
+            <ul className="flex flex-col gap-2">
+              {plan.planned.map((line) => (
+                <li key={line} className="flex gap-2 text-sm">
+                  <Clock
+                    className="mt-0.5 size-4 shrink-0 text-text-muted"
+                    aria-hidden="true"
+                  />
+                  <span className="text-text-muted">
+                    <span className="sr-only">Planned: </span>
+                    {line}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );
 }
 
 /**
- * Every capability either line's plans actually differ on, in plan order.
+ * Every capability the plans actually differ on, in plan order.
  *
  * Derived from the plans rather than hand-listed, so a capability added to a
  * plan shows up in the table without anyone remembering to add a row, and a
- * capability every plan in the line shares is left out instead of rendering a
- * row of identical ticks that tells a buyer nothing.
+ * capability every plan shares is left out instead of rendering a row of
+ * identical ticks that tells a buyer nothing.
+ *
+ * Only reads `entitlements`, never `planned`, so the table can only ever
+ * describe things the app enforces.
  */
 function comparisonRows(plans: readonly Plan[]): Entitlement[] {
   const seen: Entitlement[] = [];
@@ -143,13 +175,11 @@ function comparisonRows(plans: readonly Plan[]): Entitlement[] {
   return seen.filter((e) => !plans.every((p) => p.entitlements.includes(e)));
 }
 
-export function PlanComparison({ audience }: { audience: Audience }) {
-  const plans = plansFor(audience);
+export function PlanComparison() {
+  const plans = PLANS;
   const rows = comparisonRows(plans);
   const unit = plans[0].unit;
-  const caption = `Plan comparison for ${
-    audience === "operator" ? "guard companies" : "the organisations that hire them"
-  }`;
+  const caption = "Plan comparison for guard companies";
   return (
     // The comparison table is wider than a phone, so this scrolls sideways.
     // A bare overflow div is unreachable without a mouse: the region needs to
@@ -181,8 +211,8 @@ export function PlanComparison({ audience }: { audience: Audience }) {
             </th>
             {plans.map((plan) => (
               <td key={plan.id} className="px-3 py-3 text-center tabular-nums">
-                {plan.pricePerUnitMonth === null
-                  ? "Quote"
+                {plan.pricePerUnitMonth === 0
+                  ? "Free"
                   : `$${plan.pricePerUnitMonth}`}
               </td>
             ))}
@@ -243,16 +273,14 @@ export function PlanComparison({ audience }: { audience: Audience }) {
   );
 }
 
-/** One audience's whole pitch: why this meter, the cards, then the table. */
+/** The whole pitch: why this meter, the cards, then the table. */
 export function PlanLine({
-  line,
   headingLevel = "h2",
 }: {
-  line: (typeof PLAN_LINES)[number];
   headingLevel?: "h2" | "h3";
 }) {
   const Heading = headingLevel;
-  const plans = plansFor(line.audience);
+  const line = PLAN_LINE;
   return (
     <section
       id={line.id}
@@ -272,18 +300,18 @@ export function PlanLine({
       </div>
       <ul
         className={
-          plans.length >= 4
+          PLANS.length >= 4
             ? "grid gap-4 md:grid-cols-2 xl:grid-cols-4"
             : "grid gap-4 md:grid-cols-3"
         }
       >
-        {plans.map((plan) => (
+        {PLANS.map((plan) => (
           <li key={plan.id}>
             <PlanCard plan={plan} />
           </li>
         ))}
       </ul>
-      <PlanComparison audience={line.audience} />
+      <PlanComparison />
     </section>
   );
 }
