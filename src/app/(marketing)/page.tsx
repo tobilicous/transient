@@ -5,7 +5,6 @@ import {
   Camera,
   ClipboardList,
   Clock,
-  FileText,
   Lock,
   Mail,
   MapPin,
@@ -13,12 +12,12 @@ import {
   Mic,
   Receipt,
   ScrollText,
-  Send,
   Building2,
 } from "lucide-react";
 
 import { DashboardMock } from "@/components/marketing/dashboard-mock";
 import { PLAN_LINES, PlanLine } from "@/components/marketing/pricing-plans";
+import { ShiftLoop } from "@/components/marketing/shift-loop";
 import { SiteConfigMock } from "@/components/marketing/site-config-mock";
 import { TimelineMock } from "@/components/marketing/timeline-mock";
 import { Logo } from "@/components/brand";
@@ -88,28 +87,9 @@ const AUDIENCES = [
 ] as const;
 
 // --- 3. How it works ----------------------------------------------------------
-const STEPS = [
-  {
-    icon: Clock,
-    title: "Clock in, walk the blind spots",
-    body: "The list is the site's, not the guard's. Whoever covers the shift walks the same stairwell landing, the same loading dock camera, in the same order.",
-  },
-  {
-    icon: Camera,
-    title: "Log it where it happens",
-    body: "Tap, photo, or dictate. The time recorded is the time you opened the note, not the time you got around to saving it.",
-  },
-  {
-    icon: FileText,
-    title: "Clock out builds the report",
-    body: "Incidents first, then the timeline, then the photos. It fits in an inbox.",
-  },
-  {
-    icon: Send,
-    title: "It gets delivered, and you find out",
-    body: "Sent, delivered, opened, bounced. A bad address wakes someone up that night instead of surfacing at renewal.",
-  },
-] as const;
+// The four stages live in `shift-loop.tsx` alongside the diagram that draws
+// them, because the copy and the geometry have to agree about how many there
+// are. Importing them back here to render a second copy is how the two drift.
 
 // --- 4. Feature grid ----------------------------------------------------------
 const FEATURES = [
@@ -299,21 +279,12 @@ export default function HomePage() {
         </Section>
 
         {/* --- 3. How it works -------------------------------------------- */}
-        <Section id="how" title="How it works">
-          <ol className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {STEPS.map((step, index) => (
-              <li key={step.title} className="flex flex-col gap-3">
-                <span className="flex size-10 items-center justify-center rounded-[var(--radius-control)] bg-primary text-on-primary">
-                  <step.icon className="size-5" aria-hidden="true" />
-                </span>
-                <h3 className="font-medium">
-                  <span className="text-text-muted tabular-nums">{index + 1}. </span>
-                  {step.title}
-                </h3>
-                <p className="text-sm text-text-muted">{step.body}</p>
-              </li>
-            ))}
-          </ol>
+        <Section
+          id="how"
+          title="How it works"
+          lead="A shift is a loop, not a checklist. It ends where the next one starts, and the record it leaves behind is the only part that outlasts the night."
+        >
+          <ShiftLoop />
         </Section>
 
         {/* --- 4. Feature grid -------------------------------------------- */}

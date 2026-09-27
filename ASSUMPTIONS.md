@@ -338,6 +338,42 @@ decoration, and the on/off state is carried in real text beside it. A screen
 reader gets the facts; a sighted reader gets the picture; nobody gets a fake
 button.
 
+### The shift-loop diagram animates in CSS, not JavaScript
+
+"How it works" is a four-stage loop drawn as one SVG path with a pulse
+travelling it, and the stage card the pulse is passing lifts. The obvious way
+to build that is the way the reference site it was modelled on builds it: a
+`requestAnimationFrame` loop writing inline styles every tick. That is
+disallowed here. It would put a client component on a `force-static` route and
+cost the 97–99 Lighthouse score the section above is built around, to animate
+decoration. So the whole thing is `@keyframes` over `stroke-dashoffset` in a
+CSS module, and the contract is measured rather than assumed: after a
+production build, no emitted JS chunk mentions the component and the only
+artifact it adds is 1.5 KB of CSS.
+
+The pulse is a zero-length dash (`0.01 1565.51`) under `stroke-linecap: round`,
+which renders as a dot. Sharing one dash pattern with the trail behind it is
+what makes them physically unable to desynchronise, which two independent
+elements on the same path would not guarantee. The offsets are per-quarter
+rather than `linear` because the rectangle is wider than it is tall, so an even
+rate would put the dot 1.7× further along in the horizontal quarters and drift
+off the cards it is supposed to be pointing at.
+
+**Three things the reference does that this does not.** It shapes an "Accept"
+button out of a `div`, which is the `SwitchGlyph` problem above and gets the
+same answer. It prints "incident 4,471 of 12,840 this quarter across 50+
+countries", and this product has no customers, so there is no version of that
+number that is honest. And it fades the three inactive cards to 50% opacity,
+which makes three quarters of the copy on a read-me diagram unreadable; here
+only emphasis moves, so the highlight never carries information the numbered
+list does not already carry. That last one is also why reduced motion loses
+nothing: it resolves to a complete static circuit with every stage legible.
+
+**Accepted, not fixed:** a card centred on a corner hides that corner's arc.
+The card is bigger than the arc's bounding box, so the only escapes are cards
+under ~16% wide (too narrow for the copy) or cards pushed off the path
+(weakens the loop). The circuit still reads 1→2→3→4→1.
+
 ### `Lead` is deliberately outside the scoped data layer
 
 Every other model goes through `lib/db/scoped.ts`, which requires a company id.

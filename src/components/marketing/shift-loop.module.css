@@ -1,0 +1,164 @@
+/*
+ * Section 3's loop, animated with zero client JavaScript.
+ *
+ * The obvious way to build this is a requestAnimationFrame loop mutating
+ * inline styles. That is what the reference implementation we were shown does,
+ * and it is wrong here: every landing route is `force-static` with no client
+ * bundle of its own, which is why Lighthouse reports 97-99 on mobile
+ * (ASSUMPTIONS.md, "Zero client JavaScript"). A marketing flourish is not worth
+ * hydrating the page for. Everything below is `@keyframes` on a server-rendered
+ * component, so the animation costs one stylesheet and no JavaScript at all.
+ *
+ * Timing. One lap is 18s, four stages of 4.5s. A stage's card is emphasised
+ * during its own quarter via `animation-delay`, so the four share one keyframe
+ * set and stay in phase with the travelling pulse by construction rather than
+ * by two timelines that have to be kept in sync by hand.
+ *
+ * The geometry constants are computed, not guessed. The path is a rounded rect
+ * from (216,120) to (744,440) with r=76 in a 960x560 viewBox, whose four corner
+ * arcs sit under the four cards. Its length is
+ *   2*376 (top/bottom) + 2*168 (sides) + 4*(pi*76/2) (arcs) = 1565.52
+ * and the arc midpoints the cards sit on fall at
+ *   0, 495.38, 782.76, 1278.14
+ * along it. Those five numbers are the entire animation: the pulse keyframes
+ * put the dot on a card boundary exactly on each quarter, so the dot cannot
+ * drift out of step with the card it is meant to be pointing at. Because the
+ * rect is wider than it is tall the dot covers unequal distance per quarter,
+ * which is why the keyframes are distance-per-quarter rather than `linear`.
+ */
+
+/* --- Stage cards ---------------------------------------------------------- */
+
+/*
+ * The resting state of a card is its normal, fully readable state, and the
+ * animation only ever *adds* emphasis. This is the one place we deliberately
+ * depart from the reference, which fades three of its four cards to opacity
+ * 0.5 — that makes three quarters of the copy unreadable at any given moment,
+ * on a diagram whose entire job is to be read. Emphasis here is border colour,
+ * a filled step number, and a 2px lift. Text never moves off full opacity.
+ *
+ * No box-shadow: on dark, elevation in this product is a 1px border and never
+ * a shadow (section 6.3).
+ */
+.stage {
+  animation: stage-pulse 18s linear infinite;
+  animation-delay: calc(var(--stage) * 4.5s);
+}
+
+.stageNumber {
+  animation: stage-number 18s linear infinite;
+  animation-delay: calc(var(--stage) * 4.5s);
+}
+
+@keyframes stage-pulse {
+  0%,
+  23% {
+    border-color: var(--primary);
+    transform: translateY(-2px);
+  }
+  25%,
+  100% {
+    border-color: var(--border);
+    transform: translateY(0);
+  }
+}
+
+@keyframes stage-number {
+  0%,
+  23% {
+    background-color: var(--primary);
+    border-color: transparent;
+    color: var(--on-primary);
+  }
+  25%,
+  100% {
+    background-color: transparent;
+    border-color: var(--border);
+    color: var(--text-muted);
+  }
+}
+
+/* --- The travelling pulse -------------------------------------------------- */
+
+/*
+ * Both the trail and its head are the same path stroked twice, moved by
+ * `stroke-dashoffset` rather than `offset-path`. Two reasons: dashoffset is a
+ * presentation attribute supported everywhere this ships, and a zero-length
+ * dash under `stroke-linecap: round` renders as a perfect dot that is welded to
+ * the trail's leading edge, so the head and the tail cannot come apart.
+ *
+ * Trail:  dasharray 220/1345.5, offset = 220 - distance
+ * Head:   dasharray 0.01/1565.51, offset = -distance
+ */
+
+.trail {
+  stroke-dasharray: 220 1345.5;
+  animation: trail-travel 18s linear infinite;
+}
+
+.pulse {
+  stroke-dasharray: 0.01 1565.51;
+  stroke-linecap: round;
+  animation: pulse-travel 18s linear infinite;
+}
+
+@keyframes trail-travel {
+  0% {
+    stroke-dashoffset: 220;
+  }
+  25% {
+    stroke-dashoffset: -275.38;
+  }
+  50% {
+    stroke-dashoffset: -562.76;
+  }
+  75% {
+    stroke-dashoffset: -1058.14;
+  }
+  100% {
+    stroke-dashoffset: -1345.52;
+  }
+}
+
+@keyframes pulse-travel {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  25% {
+    stroke-dashoffset: -495.38;
+  }
+  50% {
+    stroke-dashoffset: -782.76;
+  }
+  75% {
+    stroke-dashoffset: -1278.14;
+  }
+  100% {
+    stroke-dashoffset: -1565.52;
+  }
+}
+
+/* --- Reduced motion -------------------------------------------------------- */
+
+/*
+ * globals.css already collapses every animation to 0.01ms under
+ * `prefers-reduced-motion`, which stops the movement but would leave the pulse
+ * parked somewhere arbitrary on the track looking like a rendering bug. So this
+ * branch is explicit: the head disappears, and the trail becomes a complete,
+ * undashed circuit joining all four stages.
+ *
+ * That resting picture is the honest one. Nothing in the animation carries
+ * information the numbered list does not already carry, so removing the motion
+ * removes no meaning — a reader who never sees a frame of it still gets four
+ * numbered steps on a closed loop.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .pulse {
+    display: none;
+  }
+
+  .trail {
+    stroke-dasharray: none;
+    opacity: 0.55;
+  }
+}
