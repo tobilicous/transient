@@ -5,6 +5,7 @@ import {
   LoggingMode,
   RecipientStatus,
   Role,
+  ShiftStatus,
   SubscriptionStatus,
 } from "../src/generated/prisma/enums";
 
@@ -73,8 +74,18 @@ async function main() {
       [
         { email: "owner@meridian.test", name: "Dana Okafor", role: Role.OWNER },
         {
+          email: "admin@meridian.test",
+          name: "Ana Castellanos",
+          role: Role.ADMIN,
+        },
+        {
           email: "sup.westside@meridian.test",
           name: "Marisol Rivera",
+          role: Role.SUPERVISOR,
+        },
+        {
+          email: "sup.east@meridian.test",
+          name: "Noor Haddad",
           role: Role.SUPERVISOR,
         },
         {
@@ -85,6 +96,16 @@ async function main() {
         {
           email: "guard.swing@meridian.test",
           name: "Priya Raman",
+          role: Role.GUARD,
+        },
+        {
+          email: "guard.depot@meridian.test",
+          name: "Ike Osei",
+          role: Role.GUARD,
+        },
+        {
+          email: "guard.plaza@meridian.test",
+          name: "Lena Fischer",
           role: Role.GUARD,
         },
       ] as const
@@ -217,12 +238,108 @@ async function main() {
     },
   ]);
 
+  // ---- Sites 2 and 3: the rest of the portfolio ----------------------------
+  //
+  // One company with one property cannot demonstrate the company view at all.
+  // The question that screen answers is "which of my contracts has nobody on
+  // it right now", and a single site has no answer worth reading — the panel
+  // renders one row and proves nothing.
+  //
+  // These two are deliberately thinner than Westside. A firm's newest
+  // contracts always are, and a seed where every site is equally polished
+  // hides the fact that an under-configured site still has to work.
+
+  const depot = await upsertSite({
+    companyId: company.id,
+    code: "RD",
+    name: "Riverside Depot",
+    address: "1420 East Washington Boulevard, Los Angeles, CA 90021",
+    timezone: "America/Los_Angeles",
+    loggingMode: LoggingMode.FULL,
+    headerText: "Meridian Protective Services — depot patrol report",
+    areas: [
+      "Main gate",
+      "Yard north",
+      "Yard south",
+      "Loading bays 1-6",
+      "Fuel island",
+      "Office trailer",
+    ],
+    blindSpots: [
+      ["Fence line behind bay 6", "No camera arc past the last bay door."],
+      ["Fuel island canopy", "Cameras see the pumps, not the shadow under it."],
+      ["Container row C", "Gap between stacks; walk it, do not glass it."],
+    ],
+    shiftTemplates: [
+      ["Overnight", "19:00", "07:00"],
+      ["Day patrol", "07:00", "19:00"],
+    ],
+    recipients: [
+      {
+        name: "Devon Pryce",
+        email: "operations@riversidedepot.test",
+        roleLabel: "Depot manager",
+        required: true,
+        status: RecipientStatus.VERIFIED,
+        verifiedAt,
+      },
+      {
+        // Unverified on purpose: a site whose reports are going nowhere yet
+        // is the most common real state, and the alert for it needs a row.
+        name: "Hollis Vance",
+        email: "nightops@riversidedepot.test",
+        roleLabel: "Night operations",
+        required: false,
+        status: RecipientStatus.UNVERIFIED,
+      },
+    ],
+  });
+
+  const plaza = await upsertSite({
+    companyId: company.id,
+    code: "HP",
+    name: "Harbor Point Plaza",
+    address: "300 Oceangate, Long Beach, CA 90802",
+    timezone: "America/Los_Angeles",
+    loggingMode: LoggingMode.LIGHT,
+    headerText: "Meridian Protective Services — plaza shift report",
+    areas: [
+      "Plaza level",
+      "Tower lobby",
+      "Parking P1",
+      "Service corridor",
+      "Waterfront steps",
+    ],
+    blindSpots: [
+      ["Service corridor bend", "Blind past the second fire door."],
+      ["Waterfront steps, lower landing", "Below the camera's tilt limit."],
+    ],
+    shiftTemplates: [
+      ["Evening", "16:00", "00:00"],
+      ["Overnight", "00:00", "08:00"],
+    ],
+    recipients: [
+      {
+        name: "Imani Clarke",
+        email: "property@harborpointplaza.test",
+        roleLabel: "Property manager",
+        required: true,
+        status: RecipientStatus.VERIFIED,
+        verifiedAt,
+      },
+    ],
+  });
+
   // ---- Assignments ---------------------------------------------------------
 
   const assignments: Array<[string, string]> = [
     ["sup.westside@meridian.test", hotel.id],
     ["guard.night@meridian.test", hotel.id],
     ["guard.swing@meridian.test", hotel.id],
+    ["sup.east@meridian.test", depot.id],
+    ["sup.east@meridian.test", plaza.id],
+    ["guard.depot@meridian.test", depot.id],
+    ["guard.plaza@meridian.test", plaza.id],
   ];
 
   for (const [email, siteId] of assignments) {
@@ -236,6 +353,30 @@ async function main() {
 
   // OWNER and ADMIN see every site in the company by rule, not by row, so they
   // deliberately get no assignments — see `visible.site()` in lib/db/scoped.ts.
+
+  // ---- Who is on duty right now --------------------------------------------
+  //
+  // Coverage is the company screen's first question, and it can only be
+  // answered by shifts that are open *now*. The sample night below is finished
+  // by design, so without these the answer is always "nobody, anywhere" and
+  // the panel's healthy state is unreachable on a fresh database.
+  //
+  // Two of three sites are covered, not three. A demo where nothing is ever
+  // wrong is a demo of a screen nobody needs.
+  await upsertOpenShift({
+    clientId: "seed-onduty-depot",
+    siteId: depot.id,
+    guardId: userId("guard.depot@meridian.test"),
+    startedHoursAgo: 3,
+    lengthHours: 12,
+  });
+  await upsertOpenShift({
+    clientId: "seed-onduty-plaza",
+    siteId: plaza.id,
+    guardId: userId("guard.plaza@meridian.test"),
+    startedHoursAgo: 1,
+    lengthHours: 8,
+  });
 
   // ---- The sample shift ----------------------------------------------------
   // Everything above is configuration. This is the part that makes the seeded
@@ -275,8 +416,106 @@ async function main() {
   console.log(`Sample shift: ${reportLine}.`);
 }
 
-async function upsertAreas(siteId: string, names: readonly string[]) {
-  for (const [order, name] of names.entries()) {
+/**
+ * A site plus the configuration a site is useless without. Westside is written
+ * out longhand above because it is the showcase; these are the ordinary ones,
+ * and three copies of the same six calls is how one of them quietly loses its
+ * report template.
+ *
+ * Entry types come from `DEFAULT_ENTRY_TYPES` with no additions. Westside's
+ * extra "camera room call" is a real per-site customisation, and having sites
+ * that do not share it is what proves the customisation is per-site.
+ */
+async function upsertSite(input: {
+  companyId: string;
+  name: string;
+  code: string;
+  address: string;
+  timezone: string;
+  loggingMode: LoggingMode;
+  headerText: string;
+  areas: readonly string[];
+  blindSpots: ReadonlyArray<readonly [string, string]>;
+  shiftTemplates: ReadonlyArray<readonly [string, string, string]>;
+  recipients: Parameters<typeof upsertRecipients>[1];
+}) {
+  const site = await prisma.site.upsert({
+    where: { companyId_code: { companyId: input.companyId, code: input.code } },
+    update: {},
+    create: {
+      companyId: input.companyId,
+      name: input.name,
+      code: input.code,
+      address: input.address,
+      timezone: input.timezone,
+      loggingMode: input.loggingMode,
+      footerDisclaimer:
+        "This report is a contemporaneous record of observations by on-site security personnel. It is not a legal determination.",
+      sendIndividually: true,
+    },
+  });
+
+  await upsertAreas(site.id, input.areas);
+  await upsertBlindSpots(site.id, input.blindSpots);
+  await upsertShiftTemplates(site.id, input.shiftTemplates);
+  await upsertEntryTypes(site.id, DEFAULT_ENTRY_TYPES);
+  await prisma.reportTemplate.upsert({
+    where: { siteId: site.id },
+    update: {},
+    create: {
+      siteId: site.id,
+      sections: REPORT_SECTIONS,
+      headerText: input.headerText,
+      embedPhotos: true,
+      coverPage: true,
+    },
+  });
+  await upsertRecipients(site.id, input.recipients);
+
+  return site;
+}
+
+/**
+ * A shift that is open right now, keyed on `clientId` like every other shift
+ * so re-seeding cannot leave two guards on one post.
+ *
+ * The clock-in is rewritten on every run rather than left alone. A fixed
+ * timestamp would drift into "on duty since three days ago", which reads as a
+ * bug in the clock-out flow rather than as a live shift.
+ */
+async function upsertOpenShift(input: {
+  clientId: string;
+  siteId: string;
+  guardId: string;
+  startedHoursAgo: number;
+  lengthHours: number;
+}) {
+  const clockInAt = new Date(Date.now() - input.startedHoursAgo * 60 * 60 * 1000);
+  const scheduledEnd = new Date(
+    clockInAt.getTime() + input.lengthHours * 60 * 60 * 1000,
+  );
+  return prisma.shift.upsert({
+    where: { clientId: input.clientId },
+    update: {
+      clockInAt,
+      clockOutAt: null,
+      scheduledStart: clockInAt,
+      scheduledEnd,
+      status: ShiftStatus.ACTIVE,
+    },
+    create: {
+      siteId: input.siteId,
+      guardId: input.guardId,
+      clientId: input.clientId,
+      scheduledStart: clockInAt,
+      scheduledEnd,
+      clockInAt,
+      status: ShiftStatus.ACTIVE,
+    },
+  });
+}
+
+async function upsertAreas(siteId: string, names: readonly string[]) {  for (const [order, name] of names.entries()) {
     const existing = await prisma.area.findFirst({ where: { siteId, name } });
     if (existing) {
       await prisma.area.update({ where: { id: existing.id }, data: { order } });

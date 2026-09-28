@@ -200,35 +200,59 @@ export function db(actor: Actor) {
        * and what is unresolved. `shifts` is capped at the single active shift
        * rather than loaded whole — a site with a year of history would
        * otherwise pull every shift to render one cell.
+       *
+       * The unresolved count is incidents, not shifts. Prisma's `_count` can
+       * only count a direct relation, and `Site` has no relation to `Incident`
+       * — it reaches one through shift -> entry -> incident — so counting
+       * `shifts` that *contain* an open incident is the shape that fits in one
+       * query. It is also not what the column says: a site with five open
+       * incidents logged over two nights reported "2". That was invisible
+       * while this table was the only thing on the screen, and became a
+       * contradiction the moment the company view put a list of those five
+       * incidents next to it. Counted properly here, in a second query.
+       *
+       * The cost of being right: this returns one narrow row per open
+       * incident and tallies them here, where the old shape was a single SQL
+       * COUNT. Open incidents are a worklist, so the realistic size is tens,
+       * and a company sitting on tens of thousands of unresolved incidents
+       * has a worse problem than this query. If that ever stops being true,
+       * the fix is a denormalised counter or a raw grouped query — not a
+       * `take`, which would silently render a number that is too low.
        */
-      findManyWithDuty() {
-        return prisma.site.findMany({
-          where: visible.site(actor),
-          include: {
-            recipients: { select: { id: true, name: true, status: true } },
-            shifts: {
-              where: { status: "ACTIVE", clockOutAt: null },
-              include: { guard: { select: { id: true, name: true } } },
-              orderBy: { clockInAt: "desc" },
-              take: 1,
-            },
-            _count: {
-              select: {
-                shifts: {
-                  where: {
-                    entries: {
-                      some: {
-                        deletedAt: null,
-                        incident: { status: { in: ["OPEN", "ONGOING"] } },
-                      },
-                    },
-                  },
-                },
+      async findManyWithDuty() {
+        const [sites, openIncidents] = await Promise.all([
+          prisma.site.findMany({
+            where: visible.site(actor),
+            include: {
+              recipients: { select: { id: true, name: true, status: true } },
+              shifts: {
+                where: { status: "ACTIVE", clockOutAt: null },
+                include: { guard: { select: { id: true, name: true } } },
+                orderBy: { clockInAt: "desc" },
+                take: 1,
               },
             },
-          },
-          orderBy: { name: "asc" },
-        });
+            orderBy: { name: "asc" },
+          }),
+          prisma.incident.findMany({
+            where: {
+              status: { in: [IncidentStatus.OPEN, IncidentStatus.ONGOING] },
+              entry: { deletedAt: null, shift: visible.shift(actor) },
+            },
+            select: { entry: { select: { shift: { select: { siteId: true } } } } },
+          }),
+        ]);
+
+        const bySite = new Map<string, number>();
+        for (const incident of openIncidents) {
+          const siteId = incident.entry.shift.siteId;
+          bySite.set(siteId, (bySite.get(siteId) ?? 0) + 1);
+        }
+
+        return sites.map((site) => ({
+          ...site,
+          openIncidents: bySite.get(site.id) ?? 0,
+        }));
       },
     },
 
@@ -365,6 +389,121 @@ export function db(actor: Actor) {
           where: { shiftId, shift: visible.shift(actor) },
           orderBy: { version: "desc" },
         });
+      },
+    },
+
+    /**
+     * The company overview (section 9.1, admin and owner). A firm holding
+     * several contracts asks questions a single site cannot answer: is every
+     * property actually covered, did the client receive the report, what is
+     * still open, and who is working.
+     *
+     * Scoped, never role-gated. The page decides who is offered the screen;
+     * `visible.*` decides what is in it. Putting a role throw here would
+     * contradict the split at the top of this file, where tenancy is absolute
+     * and scope is relational.
+     *
+     * So a lower rank calling these gets a narrower answer to the same
+     * question, but "narrower" differs per read, and the difference is the
+     * `visible.*` helper each one goes through, not this comment. Coverage,
+     * delivery and incidents reach the company through `visible.site`, so a
+     * supervisor sees only their own sites. `roster` goes through
+     * `visible.user`, which is tenancy alone — every role that reaches it
+     * sees the whole company's staff. That is pre-existing and shared with
+     * `user.findMany`, not something this read widens, and it is why the only
+     * call site gates on `can.viewCompany` rather than leaning on scope.
+     */
+    company: {
+      /**
+       * Delivery outcomes in a window, counted by the database rather than
+       * loaded and tallied here — a year of receipts is not a page of rows.
+       *
+       * This is a different question from `Recipient.status`, which the
+       * supervisor table already answers. An address can be VERIFIED and
+       * still have every send to it fail, and the report arriving is the
+       * whole product.
+       */
+      async deliveryHealth(since: Date) {
+        const rows = await prisma.reportDelivery.groupBy({
+          by: ["status"],
+          where: { report: visible.report(actor), statusAt: { gte: since } },
+          _count: { _all: true },
+        });
+        return rows.map((row) => ({ status: row.status, count: row._count._all }));
+      },
+
+      /**
+       * What is still open across the portfolio, newest first. Reaches the
+       * company through entry -> shift -> site, the same chain of custody
+       * every other read here uses, so it cannot acquire a different notion
+       * of tenancy.
+       */
+      openIncidents(take = 8) {
+        return prisma.incident.findMany({
+          where: {
+            status: { in: [IncidentStatus.OPEN, IncidentStatus.ONGOING] },
+            entry: { deletedAt: null, shift: visible.shift(actor) },
+          },
+          select: {
+            id: true,
+            code: true,
+            severity: true,
+            status: true,
+            entry: {
+              select: {
+                occurredAt: true,
+                shift: {
+                  select: { site: { select: { name: true, timezone: true } } },
+                },
+              },
+            },
+          },
+          orderBy: { entry: { occurredAt: "desc" } },
+          take,
+        });
+      },
+
+      /**
+       * The roster: who works here, and who is on duty right now.
+       *
+       * Bounded and honest about it. `total` is counted separately rather than
+       * inferred from `members.length`, so a firm past the cap sees that the
+       * list is a window instead of quietly reading a truncated roster as the
+       * whole staff. The open shift is capped at one for the same reason
+       * `findManyWithDuty` caps it — a guard with a year of history would
+       * otherwise drag every shift in to render one cell.
+       */
+      async roster(take = 25) {
+        const [members, total] = await Promise.all([
+          prisma.user.findMany({
+            where: visible.user(actor),
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+              shifts: {
+                where: {
+                  status: ShiftStatus.ACTIVE,
+                  clockOutAt: null,
+                  site: visible.site(actor),
+                },
+                select: {
+                  id: true,
+                  clockInAt: true,
+                  site: { select: { name: true, timezone: true } },
+                },
+                orderBy: { clockInAt: "desc" },
+                take: 1,
+              },
+              _count: { select: { assignments: true } },
+            },
+            orderBy: [{ role: "asc" }, { name: "asc" }],
+            take,
+          }),
+          prisma.user.count({ where: visible.user(actor) }),
+        ]);
+        return { members, total };
       },
     },
 
